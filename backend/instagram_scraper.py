@@ -45,325 +45,254 @@ async def parse_count(element) -> Optional[int]:
         logger.error(f"Error parsing count from {text}: {str(e)}")
         return 0  # Return 0 instead of None for failed parses
 
-import json
-import re
-
-async def get_shared_data(page) -> dict:
-    """Extract shared data from Instagram page"""
-    try:
-        shared_data = await page.evaluate("""
-            () => {
-                const element = document.querySelector('script[type="text/javascript"]:not([src])');
-                if (!element) return null;
-                const match = element.textContent.match(/window\._sharedData = ({.+?});/);
-                return match ? JSON.parse(match[1]) : null;
-            }
-        """)
-        return shared_data
-    except Exception as e:
-        logger.error(f"Error extracting shared data: {str(e)}")
-        return None
-
-async def get_additional_data(page) -> dict:
-    """Extract additional data from Instagram page"""
-    try:
-        additional_data = await page.evaluate("""
-            () => {
-                const scripts = document.querySelectorAll('script[type="text/javascript"]');
-                for (const script of scripts) {
-                    const match = script.textContent.match(/window\.__additionalDataLoaded\('.*?',(.*?)\);/);
-                    if (match) return JSON.parse(match[1]);
-                }
-                return null;
-            }
-        """)
-        return additional_data
-    except Exception as e:
-        logger.error(f"Error extracting additional data: {str(e)}")
-        return None
-
-# Common user agents for browser spoofing
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-]
-
 async def scrape_instagram_profile(username: str, retries: int = 3) -> Dict[str, Any]:
     """
     Scrape Instagram profile data with retries and anti-detection measures
-    
-    Args:
-        username (str): Instagram username to scrape
-        retries (int): Number of retry attempts if scraping fails
-    
-    Returns:
-        Dict[str, Any]: Profile data including metrics and recent posts
     """
-    if not username:
-        raise InstagramScraperError("Username cannot be empty")
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0'
+    ]
 
-    async def extract_post_data(post_link) -> dict:
-        """Extract detailed data for a single post"""
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(post_link, timeout=30000)
-                await page.wait_for_load_state('networkidle')
-                
-                # Get caption
-                caption = ""
-                caption_el = await page.query_selector('h1, [class*="caption"] span')
-                if caption_el:
-                    caption = await caption_el.text_content()
-                
-                # Get likes count
-                likes = 0
-                likes_el = await page.query_selector('[class*="like"] span')
-                if likes_el:
-                    likes_text = await likes_el.text_content()
-                    likes = await parse_count(likes_el) or 0
-                
-                # Get comments count
-                comments = 0
-                comments_el = await page.query_selector('[class*="comment"] span')
-                if comments_el:
-                    comments = await parse_count(comments_el) or 0
-                
-                await browser.close()
-                return {
-                    "caption": caption,
-                    "likes_count": likes,
-                    "comments_count": comments
-                }
-        except Exception as e:
-            logger.error(f"Error extracting post data: {str(e)}")
-            return {"caption": "", "likes_count": 0, "comments_count": 0}
-
-async def extract_ui_posts(page) -> list:
-    """Extract posts from the UI by scrolling and parsing post elements"""
-    try:
-        posts = []
-        seen_urls = set()
-
-        # Scroll multiple times to load more posts
-        for _ in range(3):
-                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                await page.wait_for_timeout(2000)
-
-        # Extract posts using JavaScript
-        ui_posts = await page.evaluate("""
-            () => {
-                const posts = [];
-                const seen = new Set();
-                
-                function extractPosts() {
-                    // Get all post articles
-                    document.querySelectorAll('article').forEach(article => {
-                        // Get post link
-                        const linkEl = article.querySelector('a[href*="/p/"]');
-                        if (!linkEl) return;
-                        
-                        // Get image
-                        const img = article.querySelector('img[src*="instagram"]');
-                        if (!img || seen.has(img.src)) return;
-                        
-                        seen.add(img.src);
-                        posts.push({
-                            image_url: img.src,
-                            post_url: linkEl.href,
-                            temp_caption: img.alt || ''
-                        });
-                    });
-                    
-                    // Method 2: Grid items
-                    document.querySelectorAll('div[style*="grid"] img[src*="instagram"]').forEach(img => {
-                        if (!seen.has(img.src)) {
-                            seen.add(img.src);
-                            posts.push({
-                                image_url: img.src,
-                                caption: img.alt || ''
-                            });
-                        }
-                    });
-                }
-                
-                extractPosts();
-                return posts;
-            }
-        """)
-
-            # Process and deduplicate posts
-        # Process the extracted posts
-        for post in ui_posts:
-            if post['image_url'] not in seen_urls:
-                seen_urls.add(post['image_url'])
-                post['timestamp'] = datetime.utcnow().isoformat()
-                posts.append(post)
-                if len(posts) >= 12:
-                    break
-
-            return posts
-    except Exception as e:
-        logger.error(f"Error extracting UI posts: {str(e)}")
-        return []
-
-    async def extract_post_details(post_url: str) -> dict:
-        """Extract detailed data for a single post"""
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(post_url, timeout=30000)
-                await page.wait_for_load_state('networkidle')
-                
-                # Get caption
-                caption = ""
-                caption_el = await page.query_selector('h1, [class*="caption"] span')
-                if caption_el:
-                    caption = await caption_el.text_content()
-                
-                # Get likes count
-                likes = 0
-                likes_el = await page.query_selector('[class*="like"] span')
-                if likes_el:
-                    likes = await parse_count(likes_el) or 0
-                
-                # Get comments count
-                comments = 0
-                comments_el = await page.query_selector('[class*="comment"] span')
-                if comments_el:
-                    comments = await parse_count(comments_el) or 0
-                
-                await browser.close()
-                return {
-                    "caption": caption,
-                    "likes_count": likes,
-                    "comments_count": comments
-                }
-        except Exception as e:
-            logger.error(f"Error extracting post details: {str(e)}")
-            return {"caption": "", "likes_count": 0, "comments_count": 0}
-
-    # Main scraping loop
     for attempt in range(retries):
         try:
             async with async_playwright() as p:
-                # Launch browser with random user agent
-                browser = await p.chromium.launch(headless=True)
+                # Launch browser with enhanced anti-detection
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--no-first-run',
+                        '--disable-default-apps',
+                        '--disable-extensions',
+                        '--disable-plugins',
+                        '--disable-images',
+                        '--disable-javascript',
+                        '--user-agent=' + random.choice(user_agents)
+                    ]
+                )
+                
+                # Create context with realistic settings
                 context = await browser.new_context(
-                    user_agent=random.choice(USER_AGENTS),
-                    viewport={'width': 1920, 'height': 1080}
+                    user_agent=random.choice(user_agents),
+                    viewport={'width': 1366, 'height': 768},
+                    locale='en-US',
+                    timezone_id='America/New_York',
+                    extra_http_headers={
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
                 )
                 
                 page = await context.new_page()
                 
-                # Enable request interception for GraphQL requests
-                await page.route("**/*", lambda route: route.continue_())
+                # Add stealth measures
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5],
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en'],
+                    });
+                    window.chrome = {
+                        runtime: {},
+                    };
+                """)
                 
                 # Add random delay
+                await page.wait_for_timeout(random.randint(3000, 6000))
+                
+                # Navigate to profile with retries
+                max_nav_retries = 3
+                for nav_attempt in range(max_nav_retries):
+                    try:
+                        logger.info(f"Navigation attempt {nav_attempt + 1} for {username}")
+                        await page.goto(f'https://www.instagram.com/{username}/', timeout=45000)
+                        await page.wait_for_load_state('networkidle', timeout=30000)
+                        
+                        # Check if we're redirected to login
+                        current_url = page.url
+                        if 'login' in current_url.lower() or 'challenge' in current_url.lower():
+                            logger.warning(f"Redirected to login page, attempt {nav_attempt + 1}")
+                            if nav_attempt < max_nav_retries - 1:
+                                await page.wait_for_timeout(random.randint(5000, 10000))
+                                continue
+                            else:
+                                raise InstagramScraperError(f"Instagram is blocking access - redirected to login")
+                        
+                        # Check if profile exists
+                        error_message = await page.query_selector('text="Sorry, this page isn\'t available."')
+                        if error_message:
+                            raise InstagramScraperError(f"Profile {username} does not exist")
+                        
+                        break  # Success, exit retry loop
+                        
+                    except Exception as e:
+                        if nav_attempt < max_nav_retries - 1:
+                            logger.warning(f"Navigation failed, retrying: {str(e)}")
+                            await page.wait_for_timeout(random.randint(5000, 10000))
+                        else:
+                            raise e
+                
+                # Wait for page to load and try multiple selector strategies
                 await page.wait_for_timeout(random.randint(2000, 4000))
                 
-                # Navigate to profile
-                logger.info(f"Navigating to profile: {username}")
-                await page.goto(f'https://www.instagram.com/{username}/', timeout=30000)
-                await page.wait_for_load_state('networkidle')
+                # Try to find metrics using multiple strategies
+                metrics = []
+                metrics_found = False
                 
-                # Wait for content to load
-                await page.wait_for_timeout(2000)
+                # Strategy 1: Try modern Instagram selectors
+                try:
+                    # Look for the new Instagram structure
+                    metrics = await page.query_selector_all('main section ul li')
+                    if metrics and len(metrics) >= 3:
+                        metrics_found = True
+                        logger.info("Found metrics using main section ul li")
+                except:
+                    pass
                 
-                # Get shared data
-                shared_data = await get_shared_data(page)
-                additional_data = await get_additional_data(page)
-                
-                logger.debug("Shared data retrieved: " + str(bool(shared_data)))
-                logger.debug("Additional data retrieved: " + str(bool(additional_data)))
-                
-                # Extract profile data
-                # Check if profile exists
-                # Check various error conditions
-                error_messages = [
-                    'text="Sorry, this page isn\'t available."',
-                    'text="Sorry, this page isn\'t available."',
-                    'text="Page Not Found"',
-                    '[data-testid="error-page"]'
-                ]
-                
-                for selector in error_messages:
-                    error_element = await page.query_selector(selector)
-                    if error_element:
-                        raise InstagramScraperError(f"Profile {username} does not exist")
-                        
-                # Also check the URL to see if we were redirected
-                current_url = page.url
-                if not username.lower() in current_url.lower():
-                    raise InstagramScraperError(f"Profile {username} does not exist")
-
-                # Extract metrics and basic info
-                await page.wait_for_selector('header section ul', timeout=10000)
-                
-                # Get metrics
-                metrics = await page.query_selector_all('header section ul li')
-                if not metrics or len(metrics) < 3:
-                    metrics = await page.query_selector_all('header ul li')
-                
-                if not metrics or len(metrics) < 3:
-                    raise InstagramScraperError(f"Could not find metrics for {username}")
-                
-                # Parse counts
-                posts_count = await parse_count(metrics[0])
-                followers_count = await parse_count(metrics[1])
-                following_count = await parse_count(metrics[2])
-                
-                # Get profile name
-                name_el = await page.query_selector("header section h2, header h2")
-                name = await name_el.text_content() if name_el else username
-                
-                # Get profile picture
-                img_el = await page.query_selector("header img")
-                profile_pic = await img_el.get_attribute("src") if img_el else None
-                        
-                        # Extract posts using UI scraping
-                posts = await extract_ui_posts(page)
-                logger.info(f"Found {len(posts)} posts using UI scraping")
-                
-                # Try GraphQL approach if we don't have enough posts
-                if len(posts) < 10 and shared_data:
+                # Strategy 2: Try header-based selectors
+                if not metrics_found:
                     try:
-                        if 'entry_data' in shared_data and 'ProfilePage' in shared_data['entry_data']:
-                            user_data = shared_data['entry_data']['ProfilePage'][0]['graphql']['user']
-                            edges = user_data.get('edge_owner_to_timeline_media', {}).get('edges', [])
-                            
-                            seen_urls = {p['image_url'] for p in posts}
-                            
-                            for edge in edges:
-                                if len(posts) >= 12:
-                                    break
-                                    
-                                node = edge['node']
-                                image_url = node.get('display_url')
-                                
-                                if image_url and image_url not in seen_urls:
-                                    caption = ""
-                                    if node.get('edge_media_to_caption', {}).get('edges'):
-                                        caption = node['edge_media_to_caption']['edges'][0]['node']['text']
-                                    
-                                    posts.append({
-                                        'image_url': image_url,
-                                        'caption': caption,
-                                        'timestamp': datetime.utcnow().isoformat()
-                                    })
-                                    seen_urls.add(image_url)
-                            
-                            logger.info(f"Added {len(posts)} posts from GraphQL data")
-                    except Exception as e:
-                        logger.error(f"Error extracting additional posts from GraphQL: {str(e)}")
+                        metrics = await page.query_selector_all('header section ul li')
+                        if metrics and len(metrics) >= 3:
+                            metrics_found = True
+                            logger.info("Found metrics using header section ul li")
+                    except:
+                        pass
                 
-                # Sort posts by image URL to ensure consistent ordering
-                posts.sort(key=lambda x: x['image_url'])
-                # Initialize empty post list
-                processed_posts = []
+                # Strategy 3: Try alternative header selectors
+                if not metrics_found:
+                    try:
+                        metrics = await page.query_selector_all('header ul li')
+                        if metrics and len(metrics) >= 3:
+                            metrics_found = True
+                            logger.info("Found metrics using header ul li")
+                    except:
+                        pass
+                
+                # Strategy 4: Try to find any elements with numbers
+                if not metrics_found:
+                    try:
+                        # Look for any elements that might contain follower/following counts
+                        all_links = await page.query_selector_all('a')
+                        metrics = []
+                        for link in all_links:
+                            href = await link.get_attribute('href')
+                            if href and ('/followers/' in href or '/following/' in href):
+                                metrics.append(link)
+                        if len(metrics) >= 2:
+                            metrics_found = True
+                            logger.info("Found metrics using href-based detection")
+                    except:
+                        pass
+                
+                # Strategy 5: JavaScript-based extraction
+                if not metrics_found:
+                    try:
+                        logger.info("Attempting JavaScript-based metric extraction...")
+                        js_metrics = await page.evaluate("""
+                            () => {
+                                const metrics = [];
+                                // Look for elements with numbers that might be counts
+                                const allElements = document.querySelectorAll('*');
+                                for (const el of allElements) {
+                                    const text = el.textContent;
+                                    if (text && /^[\d,\.KMB]+$/.test(text.trim()) && text.length < 10) {
+                                        metrics.push(el);
+                                    }
+                                }
+                                return metrics.slice(0, 10); // Return first 10 potential metrics
+                            }
+                        """)
+                        if js_metrics and len(js_metrics) >= 3:
+                            # Convert JS elements back to Playwright elements
+                            metrics = []
+                            for i, js_metric in enumerate(js_metrics):
+                                try:
+                                    element = await page.query_selector(f'*:has-text("{js_metric.textContent}")')
+                                    if element:
+                                        metrics.append(element)
+                                except:
+                                    pass
+                            if len(metrics) >= 3:
+                                metrics_found = True
+                                logger.info("Found metrics using JavaScript extraction")
+                    except Exception as e:
+                        logger.debug(f"JavaScript extraction failed: {str(e)}")
+                
+                if not metrics_found:
+                    logger.warning(f"Could not find metrics for {username} using any strategy")
+                    # Log page content for debugging
+                    try:
+                        page_content = await page.content()
+                        logger.debug(f"Page content (first 1000 chars): {page_content[:1000]}")
+                    except:
+                        pass
+                
+                # Log raw metrics text for debugging
+                for i, metric in enumerate(metrics):
+                    text = await metric.text_content()
+                    logger.debug(f"Raw metric {i}: {text}")
+                
+                # Parse counts with fallbacks
+                posts_count = await parse_count(metrics[0]) if len(metrics) > 0 else 0
+                followers_count = await parse_count(metrics[1]) if len(metrics) > 1 else 0
+                following_count = await parse_count(metrics[2]) if len(metrics) > 2 else 0
+                
+                logger.debug(f"Parsed metrics - Posts: {posts_count}, Followers: {followers_count}, Following: {following_count}")
+                
+                # Get profile name with multiple selectors
+                name = username
+                try:
+                    name_selectors = [
+                        "header section h2",
+                        "header h2",
+                        "header span[class*='title']",
+                        "header [class*='profile'] h2"
+                    ]
+                    for selector in name_selectors:
+                        name_el = await page.query_selector(selector)
+                        if name_el:
+                            name = await name_el.text_content()
+                            break
+                    logger.debug(f"Found profile name: {name}")
+                except Exception as e:
+                    logger.error(f"Error getting profile name: {str(e)}")
+                
+                # Get profile picture with multiple selectors
+                profile_pic = None
+                try:
+                    img_selectors = [
+                        "header img[class*='profile']",
+                        "header img",
+                        "[class*='ProfilePic'] img"
+                    ]
+                    for selector in img_selectors:
+                        img_el = await page.query_selector(selector)
+                        if img_el:
+                            profile_pic = await img_el.get_attribute("src")
+                            if profile_pic:
+                                break
+                    logger.debug(f"Found profile picture: {profile_pic is not None}")
+                except Exception as e:
+                    logger.error(f"Error getting profile picture: {str(e)}")
+                
+                # Get recent posts
+                posts = []
                 try:
                     # Initial wait for content
                     await page.wait_for_load_state('networkidle')
@@ -531,6 +460,57 @@ async def extract_ui_posts(page) -> list:
                         await browser.close()
                     except:
                         pass
+                
+                # If we still don't have good data, try the legacy JSON approach
+                if (followers_count == 0 and following_count == 0 and posts_count == 0) or not posts:
+                    logger.info("Trying legacy JSON extraction method...")
+                    try:
+                        # Try to extract data from window._sharedData
+                        json_data = await page.evaluate("""
+                            () => {
+                                try {
+                                    const scripts = document.querySelectorAll('script');
+                                    for (const script of scripts) {
+                                        const content = script.textContent;
+                                        if (content && content.includes('window._sharedData')) {
+                                            const match = content.match(/window\\._sharedData\\s*=\\s*({.+?});/);
+                                            if (match) {
+                                                return JSON.parse(match[1]);
+                                            }
+                                        }
+                                    }
+                                    return null;
+                                } catch (e) {
+                                    return null;
+                                }
+                            }
+                        """)
+                        
+                        if json_data and json_data.get('entry_data', {}).get('ProfilePage'):
+                            logger.info("Found JSON data, extracting profile info...")
+                            user_data = json_data['entry_data']['ProfilePage'][0]['graphql']['user']
+                            
+                            # Extract from JSON
+                            followers_count = user_data.get('edge_followed_by', {}).get('count', 0)
+                            following_count = user_data.get('edge_follow', {}).get('count', 0)
+                            posts_count = user_data.get('edge_owner_to_timeline_media', {}).get('count', 0)
+                            name = user_data.get('full_name', username)
+                            profile_pic = user_data.get('profile_pic_url_hd') or user_data.get('profile_pic_url')
+                            
+                            # Extract recent posts from JSON
+                            posts = []
+                            edges = user_data.get('edge_owner_to_timeline_media', {}).get('edges', [])
+                            for edge in edges[:12]:
+                                node = edge.get('node', {})
+                                posts.append({
+                                    "image_url": node.get('display_url', ''),
+                                    "caption": node.get('edge_media_to_caption', {}).get('edges', [{}])[0].get('node', {}).get('text', ''),
+                                    "timestamp": datetime.utcnow().isoformat()
+                                })
+                            
+                            logger.info(f"Successfully extracted data from JSON: {followers_count} followers, {posts_count} posts")
+                    except Exception as e:
+                        logger.debug(f"JSON extraction also failed: {str(e)}")
                 
                 # Return data with ISO formatted date
                 return {
