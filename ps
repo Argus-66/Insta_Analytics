@@ -1,0 +1,57 @@
+Objective
+We want to evaluate your skills in frontend development, backend development, and data engineering (scraping + processing). The task is to build a Profile Page for an Instagram Influencer that showcases data and insights in a clean, user-friendly interface.
+
+This assignment will help us understand:
+1. Your ability to design intuitive, responsive, and modern frontend UI.
+2. Your ability to build a backend service that fetches, stores, and processes data.
+3. Your data handling and processing capabilities (scraping, analyzing, enriching data).
+4. Your code structure, best practices, and ability to deliver an end-to-end feature.
+Problem Statement
+Build a web application that displays the profile of an Instagram influencer.
+Basic Information (mandatory)
+- Influencer Name
+- Username (@handle)
+- Profile Picture
+- Followers count
+- Following count
+- Number of Posts
+Engagement & Analytics (mandatory)
+- Average likes per post
+- Average comments per post
+- Engagement rate (%)
+Post-Level Data (important)
+- Recent posts (at least last 10) with:
+  - Post image/thumbnail
+  - Caption text
+  - Likes count
+  - Comments count
+- Image-level analysis (via image processing):
+  - Auto-generate keywords/tags describing the post (e.g., 'food', 'travel', 'fashion')
+  - Classify vibe/ambience of the post (e.g., 'casual', 'aesthetic', 'luxury/lavish', 'energetic')
+  - Generate quality indicators (e.g., lighting, visual appeal, consistency)
+Reels/Video-Level Data (advanced)
+- Recent reels (at least 5) with:
+  - Reel thumbnail
+  - Caption text
+  - Views, Likes, Comments
+- Video-level analysis (via basic video processing):
+  - Identify events or objects in the reel (e.g., 'person dancing', 'beach', 'car')
+  - Classify vibe/ambience/lavishness similar to posts (e.g., 'party', 'travel luxury', 'casual daily life')
+  - Extract basic descriptive tags (e.g., 'outdoor', 'nightlife', 'food review')
+Bonus Feature (Optional but Highly Valued)
+- Audience Demographics Visualization
+  - Show inferred demographics of the influencer’s audience (e.g., gender split, age groups, geography).
+  - The approach to do this will be a difficult thing hence valuable.
+  - A clear flow/UI for showcasing this will add significant bonus points.
+Technical Requirements
+Backend
+- Build a scraping pipeline to gather influencer data from Instagram.
+  - Use Instagram public data and if scraping is restricted, any approach to by-pass restrictions will be a bonus.
+  - Store the data in a database (SQL or NoSQL).
+- Implement a REST or GraphQL API to serve influencer profile + post/reel data to the frontend.
+- Implement at least basic image and video processing using libraries (e.g., OpenCV, TensorFlow, PyTorch, or external ML APIs).
+Frontend
+- Build a responsive profile page using React (or any modern frontend framework of your choice)..
+- Showcase influencer’s profile, analytics, posts, and reels in a structured and visually appealing way.
+- Include charts/graphs for engagement metrics (e.g., likes vs. comments trend, post categories).
+- Ensure smooth navigation and UX.
