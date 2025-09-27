@@ -1,0 +1,26 @@
+# =====================
+# Node / frontend
+# =====================
+/node_modules
+/.next
+/out
+/build
+.env*
+
+# =====================
+# Python / backend / scraper
+# =====================
+.venv/
+__pycache__/
+*.py[cod]
+env/
+*.env
+
+# =====================
+# Logs / testing
+# =====================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+/coverage/
